@@ -224,6 +224,7 @@ async function validateTextDocument(
         connection.console.log("line: " + line);
         try {
           const obj = JSON.parse(line);
+          console.log("obj type: " + obj.type);
 
           if (obj.type == "diagnostic") {
             let severity: DiagnosticSeverity = DiagnosticSeverity.Error;
@@ -259,10 +260,10 @@ async function validateTextDocument(
             // connection.console.log(diagnostic.message);
 
             diagnostics.push(diagnostic);
-          } else if (obj.type == "hint") {
+          } else if (obj.type == "hint" && settings.hints.showInferredTypes) {
             if (!seenTypeHintPositions.has(obj.position)) {
               seenTypeHintPositions.add(obj.position);
-              const position = convertSpan(obj.position.end, lineBreaks);
+              const position = convertSpan(obj.position, lineBreaks);
               const hint_string = ": " + obj.typename;
               const hint = InlayHint.create(
                 position,
@@ -274,7 +275,7 @@ async function validateTextDocument(
             }
           }
         } catch (e) {
-          connection.console.error(`error: ${e}`);
+          console.error(e);
         }
       }
 
@@ -529,6 +530,12 @@ async function goToDefinition(
     };
   }
 }
+
+// This handler resolves additional information for the item selected in
+// the completion list.
+connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
+  return item;
+});
 
 connection.languages.inlayHint.on((params: InlayHintParams) => {
   const document = documents.get(params.textDocument.uri) as NuTextDocument;
