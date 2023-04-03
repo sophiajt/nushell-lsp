@@ -420,7 +420,23 @@ connection.onHover(async (request: HoverParams) => {
     };
 
     if (obj.hover != "") {
-      return { contents };
+      if (obj.span) {
+        const lineBreaks = findLineBreaks(
+          obj.file
+            ? (await fs.promises.readFile(obj.file)).toString()
+            : document?.getText() ?? ""
+        );
+
+        return {
+          contents,
+          range: {
+            start: convertSpan(obj.span.start, lineBreaks),
+            end: convertSpan(obj.span.end, lineBreaks),
+          },
+        };
+      } else {
+        return { contents };
+      }
     }
   }
 });
@@ -491,6 +507,12 @@ connection.onDefinition(async (request) => {
     settings
   );
   return goToDefinition(document, stdout);
+});
+
+// This handler resolves additional information for the item selected in
+// the completion list.
+connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
+  return item;
 });
 
 async function goToDefinition(
