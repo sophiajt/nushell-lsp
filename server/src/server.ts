@@ -156,51 +156,82 @@ documents.onDidChangeContent(change => {
 	validateTextDocument(change.document);
 });
 
-async function validateTextDocument(textDocument: TextDocument): Promise<void> {
-	// In this simple example we get the settings for every validate run.
+async function validateTextDocument(
+	textDocument: TextDocument
+): Promise<void> {
+
+	if (!hasDiagnosticRelatedInformationCapability) {
+		console.error(
+			"Trying to validate a document with no diagnostic capability"
+		);
+		return;
+	}
+
+	// // In this simple example we get the settings for every validate run.
 	const settings = await getDocumentSettings(textDocument.uri);
 
 	// The validator creates diagnostics for all uppercase words length 2 and more
 	const text = textDocument.getText();
-	const pattern = /\b[A-Z]{2,}\b/g;
-	let m: RegExpExecArray | null;
 
-	let problems = 0;
+	const lineBreaks = findLineBreaks(text);
+
+	const stdout = await runCompiler(
+		text,
+		"--ide-check",
+		settings
+	);
+
 	const diagnostics: Diagnostic[] = [];
-	while ((m = pattern.exec(text)) && problems < settings.maxNumberOfProblems) {
-		problems++;
-		const diagnostic: Diagnostic = {
-			severity: DiagnosticSeverity.Warning,
-			range: {
-				start: textDocument.positionAt(m.index),
-				end: textDocument.positionAt(m.index + m[0].length)
-			},
-			message: `${m[0]} is all uppercase.`,
-			source: 'ex'
-		};
-		if (hasDiagnosticRelatedInformationCapability) {
-			diagnostic.relatedInformation = [
-				{
-					location: {
-						uri: textDocument.uri,
-						range: Object.assign({}, diagnostic.range)
-					},
-					message: 'Spelling matters'
-				},
-				{
-					location: {
-						uri: textDocument.uri,
-						range: Object.assign({}, diagnostic.range)
-					},
-					message: 'Particularly for names'
+
+	const lines = stdout.split("\n").filter((l) => l.length > 0);
+	for (const line of lines) {
+		// connection.console.log(line);
+		try {
+			const obj = JSON.parse(line);
+
+			if (obj.type == "diagnostic") {
+				let severity: DiagnosticSeverity = DiagnosticSeverity.Error;
+
+				switch (obj.severity) {
+					case "Information":
+						severity = DiagnosticSeverity.Information;
+						break;
+					case "Hint":
+						severity = DiagnosticSeverity.Hint;
+						break;
+					case "Warning":
+						severity = DiagnosticSeverity.Warning;
+						break;
+					case "Error":
+						severity = DiagnosticSeverity.Error;
+						break;
 				}
-			];
+
+				const position_start = convertSpan(obj.span.start, lineBreaks);
+				const position_end = convertSpan(obj.span.end, lineBreaks);
+
+				const diagnostic: Diagnostic = {
+					severity,
+					range: {
+						start: position_start,
+						end: position_end,
+					},
+					message: obj.message,
+					source: textDocument.uri,
+				};
+
+				// connection.console.log(diagnostic.message);
+
+				diagnostics.push(diagnostic);
+			}
+		} catch (e) {
+			console.error(e);
 		}
-		diagnostics.push(diagnostic);
 	}
 
 	// Send the computed diagnostics to VSCode.
 	connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+
 }
 
 connection.onDidChangeWatchedFiles(_change => {
@@ -287,9 +318,9 @@ async function runCompiler(
 			}
 		);
 		stdout = output.stdout;
-		// console.log("stdout: " + stdout);
-		// connection.console.log("stdout: " + stdout);
-		// process.stdout.write("stdout: " + stdout);
+		console.log("stdout: " + stdout);
+		connection.console.log("stdout: " + stdout);
+		process.stdout.write("stdout: " + stdout);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} catch (e: any) {
 		stdout = e.stdout;
@@ -464,6 +495,8 @@ connection.onCompletionResolve(
 		return item;
 	}
 );
+
+
 
 function findLineBreaks(utf16_text: string): Array<number> {
 	const utf8_text = new TextEncoder().encode(utf16_text);
