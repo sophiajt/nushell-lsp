@@ -3,37 +3,35 @@
  * Licensed under the MIT License. See License.txt in the project root for license information.
  * ------------------------------------------------------------------------------------------ */
 import {
-	createConnection,
-	TextDocuments,
-	Diagnostic,
-	DiagnosticSeverity,
-	ProposedFeatures,
-	InitializeParams,
-	DidChangeConfigurationNotification,
-	CompletionItem,
-	CompletionItemKind,
-	TextDocumentPositionParams,
-	TextDocumentSyncKind,
-	InitializeResult,
-	HoverParams,
-	Definition,
-	HandlerResult,
-} from 'vscode-languageserver/node';
+  createConnection,
+  TextDocuments,
+  Diagnostic,
+  DiagnosticSeverity,
+  ProposedFeatures,
+  InitializeParams,
+  DidChangeConfigurationNotification,
+  CompletionItem,
+  CompletionItemKind,
+  TextDocumentPositionParams,
+  TextDocumentSyncKind,
+  InitializeResult,
+  HoverParams,
+  Definition,
+  HandlerResult,
+} from "vscode-languageserver/node";
 
 import {
-	Position,
-	InlayHint,
-    InlayHintParams,
-    InlayHintLabelPart,
-    InlayHintKind,
+  Position,
+  InlayHint,
+  InlayHintParams,
+  InlayHintLabelPart,
+  InlayHintKind,
 } from "vscode-languageserver-protocol";
 
-import {
-	TextDocument
-} from 'vscode-languageserver-textdocument';
+import { TextDocument } from "vscode-languageserver-textdocument";
 
 interface NuTextDocument extends TextDocument {
-    nuInlayHints?: InlayHint[];
+  nuInlayHints?: InlayHint[];
 }
 import fs = require("fs");
 import tmp = require("tmp");
@@ -60,513 +58,509 @@ let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
 
 connection.onInitialize((params: InitializeParams) => {
-	const capabilities = params.capabilities;
+  const capabilities = params.capabilities;
 
-	// Does the client support the `workspace/configuration` request?
-	// If not, we fall back using global settings.
-	hasConfigurationCapability = !!(
-		capabilities.workspace && !!capabilities.workspace.configuration
-	);
-	hasWorkspaceFolderCapability = !!(
-		capabilities.workspace && !!capabilities.workspace.workspaceFolders
-	);
-	hasDiagnosticRelatedInformationCapability = !!(
-		capabilities.textDocument &&
-		capabilities.textDocument.publishDiagnostics &&
-		capabilities.textDocument.publishDiagnostics.relatedInformation
-	);
+  // Does the client support the `workspace/configuration` request?
+  // If not, we fall back using global settings.
+  hasConfigurationCapability = !!(
+    capabilities.workspace && !!capabilities.workspace.configuration
+  );
+  hasWorkspaceFolderCapability = !!(
+    capabilities.workspace && !!capabilities.workspace.workspaceFolders
+  );
+  hasDiagnosticRelatedInformationCapability = !!(
+    capabilities.textDocument &&
+    capabilities.textDocument.publishDiagnostics &&
+    capabilities.textDocument.publishDiagnostics.relatedInformation
+  );
 
-	const result: InitializeResult = {
-		capabilities: {
-			textDocumentSync: TextDocumentSyncKind.Incremental,
-			// Tell the client that this server supports code completion.
-			completionProvider: {
-				resolveProvider: true
-			},
-			inlayHintProvider: {
-                resolveProvider: false,
-            },
-			hoverProvider: true,
-			definitionProvider: true,
-		}
-	};
-	if (hasWorkspaceFolderCapability) {
-		result.capabilities.workspace = {
-			workspaceFolders: {
-				supported: true
-			}
-		};
-	}
-	return result;
+  const result: InitializeResult = {
+    capabilities: {
+      textDocumentSync: TextDocumentSyncKind.Incremental,
+      // Tell the client that this server supports code completion.
+      completionProvider: {
+        resolveProvider: true,
+      },
+      inlayHintProvider: {
+        resolveProvider: false,
+      },
+      hoverProvider: true,
+      definitionProvider: true,
+    },
+  };
+  if (hasWorkspaceFolderCapability) {
+    result.capabilities.workspace = {
+      workspaceFolders: {
+        supported: true,
+      },
+    };
+  }
+  return result;
 });
 
 async function durationLogWrapper<T>(
-    label: string,
-    fn: () => Promise<T>
+  label: string,
+  fn: () => Promise<T>
 ): Promise<T> {
-    console.log("Triggered " + label + ": ...");
-    console.time(label);
-    const result = await fn();
+  console.log("Triggered " + label + ": ...");
+  console.time(label);
+  const result = await fn();
 
-    // This purposefully has the same prefix length as the "Triggered " log above,
-    // also does not add a newline at the end.
-    process.stdout.write("Finished  ");
-    console.timeEnd(label);
-    return new Promise<T>(resolve => resolve(result));
+  // This purposefully has the same prefix length as the "Triggered " log above,
+  // also does not add a newline at the end.
+  process.stdout.write("Finished  ");
+  console.timeEnd(label);
+  return new Promise<T>((resolve) => resolve(result));
 }
 
 connection.onInitialized(() => {
-	if (hasConfigurationCapability) {
-		// Register for all configuration changes.
-		connection.client.register(DidChangeConfigurationNotification.type, undefined);
-	}
-	if (hasWorkspaceFolderCapability) {
-		connection.workspace.onDidChangeWorkspaceFolders(_event => {
-			connection.console.log('Workspace folder change event received.');
-		});
-	}
+  if (hasConfigurationCapability) {
+    // Register for all configuration changes.
+    connection.client.register(
+      DidChangeConfigurationNotification.type,
+      undefined
+    );
+  }
+  if (hasWorkspaceFolderCapability) {
+    connection.workspace.onDidChangeWorkspaceFolders((_event) => {
+      connection.console.log("Workspace folder change event received.");
+    });
+  }
 });
 
 // The example settings
 interface ExampleSettings {
-	maxNumberOfProblems: number;
-	hints: {
-		showInferredTypes: boolean;
-	}
+  maxNumberOfProblems: number;
+  hints: {
+    showInferredTypes: boolean;
+  };
 }
 
 // The global settings, used when the `workspace/configuration` request is not supported by the client.
 // Please note that this is not the case when using this server with the client provided in this example
 // but could happen with other clients.
 const defaultSettings: ExampleSettings = {
-	maxNumberOfProblems: 1000,
-	hints: { showInferredTypes: true },
+  maxNumberOfProblems: 1000,
+  hints: { showInferredTypes: true },
 };
 let globalSettings: ExampleSettings = defaultSettings;
 
 // Cache the settings of all open documents
 const documentSettings: Map<string, Thenable<ExampleSettings>> = new Map();
 
-connection.onDidChangeConfiguration(change => {
-	if (hasConfigurationCapability) {
-		// Reset all cached document settings
-		documentSettings.clear();
-	} else {
-		globalSettings = <ExampleSettings>(
-			(change.settings.nushellLanguageServer || defaultSettings)
-		);
-	}
+connection.onDidChangeConfiguration((change) => {
+  if (hasConfigurationCapability) {
+    // Reset all cached document settings
+    documentSettings.clear();
+  } else {
+    globalSettings = <ExampleSettings>(
+      (change.settings.nushellLanguageServer || defaultSettings)
+    );
+  }
 
-	// Revalidate all open text documents
-	documents.all().forEach(validateTextDocument);
+  // Revalidate all open text documents
+  documents.all().forEach(validateTextDocument);
 });
 
 function getDocumentSettings(resource: string): Thenable<ExampleSettings> {
-	if (!hasConfigurationCapability) {
-		return Promise.resolve(globalSettings);
-	}
-	let result = documentSettings.get(resource);
-	if (!result) {
-		result = connection.workspace.getConfiguration({
-			scopeUri: resource,
-			section: 'nushellLanguageServer'
-		});
-		documentSettings.set(resource, result);
-	}
-	return result;
+  if (!hasConfigurationCapability) {
+    return Promise.resolve(globalSettings);
+  }
+  let result = documentSettings.get(resource);
+  if (!result) {
+    result = connection.workspace.getConfiguration({
+      scopeUri: resource,
+      section: "nushellLanguageServer",
+    });
+    documentSettings.set(resource, result);
+  }
+  return result;
 }
 
 // Only keep settings for open documents
-documents.onDidClose(e => {
-	documentSettings.delete(e.document.uri);
+documents.onDidClose((e) => {
+  documentSettings.delete(e.document.uri);
 });
 
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
-documents.onDidChangeContent(change => {
-	validateTextDocument(change.document);
+documents.onDidChangeContent((change) => {
+  validateTextDocument(change.document);
 });
 
 async function validateTextDocument(
-	textDocument: NuTextDocument
+  textDocument: NuTextDocument
 ): Promise<void> {
-	return await durationLogWrapper(`validateTextDocument ${textDocument.uri}`, async () => {
-	if (!hasDiagnosticRelatedInformationCapability) {
-		console.error(
-			"Trying to validate a document with no diagnostic capability"
-		);
-		return;
-	}
+  return await durationLogWrapper(
+    `validateTextDocument ${textDocument.uri}`,
+    async () => {
+      if (!hasDiagnosticRelatedInformationCapability) {
+        console.error(
+          "Trying to validate a document with no diagnostic capability"
+        );
+        return;
+      }
 
-	// // In this simple example we get the settings for every validate run.
-	const settings = await getDocumentSettings(textDocument.uri);
+      // // In this simple example we get the settings for every validate run.
+      const settings = await getDocumentSettings(textDocument.uri);
 
-	// The validator creates diagnostics for all uppercase words length 2 and more
-	const text = textDocument.getText();
+      // The validator creates diagnostics for all uppercase words length 2 and more
+      const text = textDocument.getText();
 
-	const lineBreaks = findLineBreaks(text);
+      const lineBreaks = findLineBreaks(text);
 
-	const stdout = await runCompiler(
-		text,
-		"--ide-check",
-		settings
-	);
+      const stdout = await runCompiler(text, "--ide-check", settings);
 
-	textDocument.nuInlayHints = [];
+      textDocument.nuInlayHints = [];
 
-	const diagnostics: Diagnostic[] = [];
+      const diagnostics: Diagnostic[] = [];
 
-	// FIXME: We use this to deduplicate type hints given by the compiler.
-	//        It'd be nicer if it didn't give duplicate hints in the first place.
-	const seenTypeHintPositions = new Set();
+      // FIXME: We use this to deduplicate type hints given by the compiler.
+      //        It'd be nicer if it didn't give duplicate hints in the first place.
+      const seenTypeHintPositions = new Set();
 
-	const lines = stdout.split("\n").filter((l) => l.length > 0);
-	for (const line of lines) {
-		connection.console.log("line: " + line);
-		try {
-			const obj = JSON.parse(line);
-			console.log("obj type: " + obj.type);
+      const lines = stdout.split("\n").filter((l) => l.length > 0);
+      for (const line of lines) {
+        connection.console.log("line: " + line);
+        try {
+          const obj = JSON.parse(line);
+          console.log("obj type: " + obj.type);
 
-			if (obj.type == "diagnostic") {
-				let severity: DiagnosticSeverity = DiagnosticSeverity.Error;
+          if (obj.type == "diagnostic") {
+            let severity: DiagnosticSeverity = DiagnosticSeverity.Error;
 
-				switch (obj.severity) {
-					case "Information":
-						severity = DiagnosticSeverity.Information;
-						break;
-					case "Hint":
-						severity = DiagnosticSeverity.Hint;
-						break;
-					case "Warning":
-						severity = DiagnosticSeverity.Warning;
-						break;
-					case "Error":
-						severity = DiagnosticSeverity.Error;
-						break;
-				}
+            switch (obj.severity) {
+              case "Information":
+                severity = DiagnosticSeverity.Information;
+                break;
+              case "Hint":
+                severity = DiagnosticSeverity.Hint;
+                break;
+              case "Warning":
+                severity = DiagnosticSeverity.Warning;
+                break;
+              case "Error":
+                severity = DiagnosticSeverity.Error;
+                break;
+            }
 
-				const position_start = convertSpan(obj.span.start, lineBreaks);
-				const position_end = convertSpan(obj.span.end, lineBreaks);
+            const position_start = convertSpan(obj.span.start, lineBreaks);
+            const position_end = convertSpan(obj.span.end, lineBreaks);
 
-				const diagnostic: Diagnostic = {
-					severity,
-					range: {
-						start: position_start,
-						end: position_end,
-					},
-					message: obj.message,
-					source: textDocument.uri,
-				};
+            const diagnostic: Diagnostic = {
+              severity,
+              range: {
+                start: position_start,
+                end: position_end,
+              },
+              message: obj.message,
+              source: textDocument.uri,
+            };
 
-				// connection.console.log(diagnostic.message);
+            // connection.console.log(diagnostic.message);
 
-				diagnostics.push(diagnostic);
-			} else if (obj.type == "hint" && settings.hints.showInferredTypes) {
-				if (!seenTypeHintPositions.has(obj.position)) {
-					seenTypeHintPositions.add(obj.position);
-					const position = convertSpan(obj.position, lineBreaks);
-					const hint_string = ": " + obj.typename;
-					const hint = InlayHint.create(
-						position,
-						[InlayHintLabelPart.create(hint_string)],
-						InlayHintKind.Type
-					);
+            diagnostics.push(diagnostic);
+          } else if (obj.type == "hint" && settings.hints.showInferredTypes) {
+            if (!seenTypeHintPositions.has(obj.position)) {
+              seenTypeHintPositions.add(obj.position);
+              const position = convertSpan(obj.position, lineBreaks);
+              const hint_string = ": " + obj.typename;
+              const hint = InlayHint.create(
+                position,
+                [InlayHintLabelPart.create(hint_string)],
+                InlayHintKind.Type
+              );
 
-					textDocument.nuInlayHints.push(hint);
-				}
-			}
-		} catch (e) {
-			console.error(e);
-		}
-	}
+              textDocument.nuInlayHints.push(hint);
+            }
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
 
-	// Send the computed diagnostics to VSCode.
-	connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
-	});
-
+      // Send the computed diagnostics to VSCode.
+      connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+    }
+  );
 }
 
-connection.onDidChangeWatchedFiles(_change => {
-	// Monitored files have change in VSCode
-	connection.console.log('We received an file change event');
+connection.onDidChangeWatchedFiles((_change) => {
+  // Monitored files have change in VSCode
+  connection.console.log("We received an file change event");
 });
 
 function lowerBoundBinarySearch(arr: number[], num: number): number {
-	let low = 0;
-	let mid = 0;
-	let high = arr.length - 1;
+  let low = 0;
+  let mid = 0;
+  let high = arr.length - 1;
 
-	if (num >= arr[high]) return high;
+  if (num >= arr[high]) return high;
 
-	while (low < high) {
-		// Bitshift to avoid floating point division
-		mid = (low + high) >> 1;
+  while (low < high) {
+    // Bitshift to avoid floating point division
+    mid = (low + high) >> 1;
 
-		if (arr[mid] < num) {
-			low = mid + 1;
-		} else {
-			high = mid;
-		}
-	}
+    if (arr[mid] < num) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
 
-	return low - 1;
+  return low - 1;
 }
 
 function convertSpan(utf8_offset: number, lineBreaks: Array<number>): Position {
-	const lineBreakIndex = lowerBoundBinarySearch(lineBreaks, utf8_offset);
+  const lineBreakIndex = lowerBoundBinarySearch(lineBreaks, utf8_offset);
 
-	const start_of_line_offset =
-		lineBreakIndex == -1 ? 0 : lineBreaks[lineBreakIndex] + 1;
-	const character = Math.max(0, utf8_offset - start_of_line_offset);
+  const start_of_line_offset =
+    lineBreakIndex == -1 ? 0 : lineBreaks[lineBreakIndex] + 1;
+  const character = Math.max(0, utf8_offset - start_of_line_offset);
 
-	return { line: lineBreakIndex + 1, character };
+  return { line: lineBreakIndex + 1, character };
 }
 
 function convertPosition(position: Position, text: string): number {
-	let line = 0;
-	let character = 0;
-	const buffer = new TextEncoder().encode(text);
+  let line = 0;
+  let character = 0;
+  const buffer = new TextEncoder().encode(text);
 
-	let i = 0;
-	while (i < text.length) {
-		if (line == position.line && character == position.character) {
-			return i;
-		}
+  let i = 0;
+  while (i < text.length) {
+    if (line == position.line && character == position.character) {
+      return i;
+    }
 
-		if (buffer.at(i) == 0x0a) {
-			line++;
-			character = 0;
-		} else {
-			character++;
-		}
+    if (buffer.at(i) == 0x0a) {
+      line++;
+      character = 0;
+    } else {
+      character++;
+    }
 
-		i++;
-	}
+    i++;
+  }
 
-	return i;
+  return i;
 }
 
 async function runCompiler(
-	text: string,
-	flags: string,
-	settings: ExampleSettings,
-	options: { allowErrors?: boolean } = {}
+  text: string,
+  flags: string,
+  settings: ExampleSettings,
+  options: { allowErrors?: boolean } = {}
 ): Promise<string> {
-	const allowErrors = options.allowErrors === undefined ? true : options.allowErrors;
+  const allowErrors =
+    options.allowErrors === undefined ? true : options.allowErrors;
 
-	try {
-		fs.writeFileSync(tmpFile.name, text);
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	} catch (e: any) {
-		// connection.console.log(e);
-	}
+  try {
+    fs.writeFileSync(tmpFile.name, text);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (e: any) {
+    // connection.console.log(e);
+  }
 
-	let stdout = "";
-	try {
-		const output = await exec(
-			`C:\\CarTar\\debug\\nu.exe ${flags} ${tmpFile.name}`,
-			{
-				timeout: 10000000,
-			}
-		);
-		stdout = output.stdout;
-		console.log("stdout: " + stdout);
-		connection.console.log("stdout: " + stdout);
-		process.stdout.write("stdout: " + stdout);
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	} catch (e: any) {
-		stdout = e.stdout;
-		if (!allowErrors) {
-			if (e.signal != null) {
-				connection.console.log("compile failed: ");
-				connection.console.log(e);
-			} else {
-				connection.console.log("Error:" + e);
-			}
-			throw e;
-		}
-	}
+  let stdout = "";
+  try {
+    const output = await exec(
+      `/Users/jt/Source/nushell/target/debug/nu ${flags} ${tmpFile.name}`,
+      {
+        timeout: 10000000,
+      }
+    );
+    stdout = output.stdout;
+    console.log("stdout: " + stdout);
+    connection.console.log("stdout: " + stdout);
+    process.stdout.write("stdout: " + stdout);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (e: any) {
+    stdout = e.stdout;
+    if (!allowErrors) {
+      if (e.signal != null) {
+        connection.console.log("compile failed: ");
+        connection.console.log(e);
+      } else {
+        connection.console.log("Error:" + e);
+      }
+      throw e;
+    }
+  }
 
-	return stdout;
+  return stdout;
 }
 
 connection.onHover(async (request: HoverParams) => {
-	const document = documents.get(request.textDocument.uri);
-	const settings = await getDocumentSettings(request.textDocument.uri);
+  const document = documents.get(request.textDocument.uri);
+  const settings = await getDocumentSettings(request.textDocument.uri);
 
-	const text = document?.getText();
+  const text = document?.getText();
 
-	if (!(typeof text == "string")) return null;
+  if (!(typeof text == "string")) return null;
 
-	// connection.console.log("request: ");
-	// connection.console.log(request.textDocument.uri);
-	// connection.console.log("index: " + convertPosition(request.position, text));
-	const stdout = await runCompiler(
-		text,
-		"--ide-hover " +
-		convertPosition(request.position, text),
-		settings
-	);
+  // connection.console.log("request: ");
+  // connection.console.log(request.textDocument.uri);
+  // connection.console.log("index: " + convertPosition(request.position, text));
+  const stdout = await runCompiler(
+    text,
+    "--ide-hover " + convertPosition(request.position, text),
+    settings
+  );
 
-	const lines = stdout.split("\n").filter((l) => l.length > 0);
-	for (const line of lines) {
-		const obj = JSON.parse(line);
-		// connection.console.log("hovering");
-		// connection.console.log(obj);
+  const lines = stdout.split("\n").filter((l) => l.length > 0);
+  for (const line of lines) {
+    const obj = JSON.parse(line);
+    // connection.console.log("hovering");
+    // connection.console.log(obj);
 
-		// FIXME: Figure out how to import `vscode` package in server.ts without
-		// getting runtime import errors to remove this deprecation warning.
-		const contents = {
-			value: obj.hover,
-			language: "nushell",
-		};
+    // FIXME: Figure out how to import `vscode` package in server.ts without
+    // getting runtime import errors to remove this deprecation warning.
+    const contents = {
+      value: obj.hover,
+      language: "nushell",
+    };
 
-		if (obj.hover != "") {
-			return { contents };
-		}
-	}
+    if (obj.hover != "") {
+      return { contents };
+    }
+  }
 });
 
 // This handler provides the initial list of the completion items.
-connection.onCompletion(async (request: TextDocumentPositionParams): Promise<CompletionItem[]> => {
-	// The pass parameter contains the position of the text document in
-	// which code complete got requested. For the example we ignore this
-	// info and always provide the same completion items.
+connection.onCompletion(
+  async (request: TextDocumentPositionParams): Promise<CompletionItem[]> => {
+    // The pass parameter contains the position of the text document in
+    // which code complete got requested. For the example we ignore this
+    // info and always provide the same completion items.
 
-	const document = documents.get(request.textDocument.uri);
-	const settings = await getDocumentSettings(request.textDocument.uri);
+    const document = documents.get(request.textDocument.uri);
+    const settings = await getDocumentSettings(request.textDocument.uri);
 
-	const text = document?.getText();
+    const text = document?.getText();
 
-	if (typeof text == "string") {
-		// connection.console.log("completion request: ");
-		// connection.console.log(request.textDocument.uri);
-		const index = convertPosition(request.position, text);
-		// connection.console.log("index: " + index);
-		const stdout = await runCompiler(
-			text,
-			"--ide-complete " + index, //+ includeFlagForPath(request.textDocument.uri),
-			settings
-		);
-		// connection.console.log("got: " + stdout);
+    if (typeof text == "string") {
+      // connection.console.log("completion request: ");
+      // connection.console.log(request.textDocument.uri);
+      const index = convertPosition(request.position, text);
+      // connection.console.log("index: " + index);
+      const stdout = await runCompiler(
+        text,
+        "--ide-complete " + index, //+ includeFlagForPath(request.textDocument.uri),
+        settings
+      );
+      // connection.console.log("got: " + stdout);
 
-		const lines = stdout.split("\n").filter((l) => l.length > 0);
-		for (const line of lines) {
-			const obj = JSON.parse(line);
-			// connection.console.log("completions");
-			// connection.console.log(obj);
+      const lines = stdout.split("\n").filter((l) => l.length > 0);
+      for (const line of lines) {
+        const obj = JSON.parse(line);
+        // connection.console.log("completions");
+        // connection.console.log(obj);
 
-			const output = [];
-			let index = 1;
-			for (const completion of obj.completions) {
-				output.push({
-					label: completion,
-					kind: completion.includes("(")
-						? CompletionItemKind.Function
-						: CompletionItemKind.Field,
-					data: index,
-				});
-				index++;
-			}
-			return output;
-		}
-	}
+        const output = [];
+        let index = 1;
+        for (const completion of obj.completions) {
+          output.push({
+            label: completion,
+            kind: completion.includes("(")
+              ? CompletionItemKind.Function
+              : CompletionItemKind.Field,
+            data: index,
+          });
+          index++;
+        }
+        return output;
+      }
+    }
 
-	return [];
-});
+    return [];
+  }
+);
 
 connection.onDefinition(async (request) => {
-	const document = documents.get(request.textDocument.uri);
-	if (!document) return;
-	const settings = await getDocumentSettings(request.textDocument.uri);
+  const document = documents.get(request.textDocument.uri);
+  if (!document) return;
+  const settings = await getDocumentSettings(request.textDocument.uri);
 
-	const text = document.getText();
+  const text = document.getText();
 
-	// connection.console.log("request: ");
-	// connection.console.log(request.textDocument.uri);
-	// connection.console.log("index: " + convertPosition(request.position, text));
-	const stdout = await runCompiler(
-		text,
-		"--ide-goto-def " +
-		convertPosition(request.position, text),
-		settings
-	);
-	return goToDefinition(document, stdout);
+  // connection.console.log("request: ");
+  // connection.console.log(request.textDocument.uri);
+  // connection.console.log("index: " + convertPosition(request.position, text));
+  const stdout = await runCompiler(
+    text,
+    "--ide-goto-def " + convertPosition(request.position, text),
+    settings
+  );
+  return goToDefinition(document, stdout);
 });
 
 async function goToDefinition(
-	document: TextDocument,
-	nushellOutput: string
+  document: TextDocument,
+  nushellOutput: string
 ): Promise<HandlerResult<Definition, void> | undefined> {
+  const lines = nushellOutput.split("\n").filter((l) => l.length > 0);
+  for (const line of lines) {
+    const obj = JSON.parse(line);
+    // connection.console.log("going to type definition");
+    // connection.console.log(obj);
+    if (obj.file === "" || obj.file === "__prelude__") return;
 
-	const lines = nushellOutput.split("\n").filter((l) => l.length > 0);
-	for (const line of lines) {
-		const obj = JSON.parse(line);
-		// connection.console.log("going to type definition");
-		// connection.console.log(obj);
-		if (obj.file === "" || obj.file === "__prelude__") return;
+    const lineBreaks = findLineBreaks(
+      obj.file
+        ? (await fs.promises.readFile(obj.file)).toString()
+        : document.getText() ?? ""
+    );
+    // const uri = obj.file ? "file://" + obj.file : document.uri;
 
-		const lineBreaks = findLineBreaks(
-			obj.file
-				? (await fs.promises.readFile(obj.file)).toString()
-				: document.getText() ?? ""
-		);
-		// const uri = obj.file ? "file://" + obj.file : document.uri;
+    let uri = "";
+    if (obj.file == tmpFile.name) {
+      uri = document.uri;
+    } else {
+      uri = obj.file ? "file://" + obj.file : document.uri;
+    }
 
-		let uri = "";
-		if (obj.file == tmpFile.name) {
-			uri = document.uri;
-		} else {
-			uri = obj.file ? "file://" + obj.file : document.uri;
-		}
+    // connection.console.log(uri);
 
-		// connection.console.log(uri);
-
-		return {
-			uri: uri,
-			range: {
-				start: convertSpan(obj.start, lineBreaks),
-				end: convertSpan(obj.end, lineBreaks),
-			},
-		};
-	}
+    return {
+      uri: uri,
+      range: {
+        start: convertSpan(obj.start, lineBreaks),
+        end: convertSpan(obj.end, lineBreaks),
+      },
+    };
+  }
 }
-
 
 // This handler resolves additional information for the item selected in
 // the completion list.
-connection.onCompletionResolve(
-	(item: CompletionItem): CompletionItem => {
-		if (item.data === 1) {
-			item.detail = 'TypeScript details';
-			item.documentation = 'TypeScript documentation';
-		} else if (item.data === 2) {
-			item.detail = 'JavaScript details';
-			item.documentation = 'JavaScript documentation';
-		}
-		return item;
-	}
-);
-
-connection.languages.inlayHint.on((params: InlayHintParams) => {
-    const document = documents.get(params.textDocument.uri) as NuTextDocument;
-    return document.nuInlayHints;
+connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
+  if (item.data === 1) {
+    item.detail = "TypeScript details";
+    item.documentation = "TypeScript documentation";
+  } else if (item.data === 2) {
+    item.detail = "JavaScript details";
+    item.documentation = "JavaScript documentation";
+  }
+  return item;
 });
 
+connection.languages.inlayHint.on((params: InlayHintParams) => {
+  const document = documents.get(params.textDocument.uri) as NuTextDocument;
+  return document.nuInlayHints;
+});
 
 function findLineBreaks(utf16_text: string): Array<number> {
-	const utf8_text = new TextEncoder().encode(utf16_text);
-	const lineBreaks: Array<number> = [];
+  const utf8_text = new TextEncoder().encode(utf16_text);
+  const lineBreaks: Array<number> = [];
 
-	for (let i = 0; i < utf8_text.length; ++i) {
-		if (utf8_text[i] == 0x0a) {
-			lineBreaks.push(i);
-		}
-	}
+  for (let i = 0; i < utf8_text.length; ++i) {
+    if (utf8_text[i] == 0x0a) {
+      lineBreaks.push(i);
+    }
+  }
 
-	return lineBreaks;
+  return lineBreaks;
 }
-
 
 // Make the text document manager listen on the connection
 // for open, change and close text document events
