@@ -22,12 +22,19 @@ import {
 
 import {
 	Position,
+	InlayHint,
+    InlayHintParams,
+    InlayHintLabelPart,
+    InlayHintKind,
 } from "vscode-languageserver-protocol";
 
 import {
 	TextDocument
 } from 'vscode-languageserver-textdocument';
 
+interface NuTextDocument extends TextDocument {
+    nuInlayHints?: InlayHint[];
+}
 import fs = require("fs");
 import tmp = require("tmp");
 import path = require("path");
@@ -76,6 +83,9 @@ connection.onInitialize((params: InitializeParams) => {
 			completionProvider: {
 				resolveProvider: true
 			},
+			inlayHintProvider: {
+                resolveProvider: false,
+            },
 			hoverProvider: true,
 			definitionProvider: true,
 		}
@@ -89,6 +99,21 @@ connection.onInitialize((params: InitializeParams) => {
 	}
 	return result;
 });
+
+async function durationLogWrapper<T>(
+    label: string,
+    fn: () => Promise<T>
+): Promise<T> {
+    console.log("Triggered " + label + ": ...");
+    console.time(label);
+    const result = await fn();
+
+    // This purposefully has the same prefix length as the "Triggered " log above,
+    // also does not add a newline at the end.
+    process.stdout.write("Finished  ");
+    console.timeEnd(label);
+    return new Promise<T>(resolve => resolve(result));
+}
 
 connection.onInitialized(() => {
 	if (hasConfigurationCapability) {
@@ -105,12 +130,18 @@ connection.onInitialized(() => {
 // The example settings
 interface ExampleSettings {
 	maxNumberOfProblems: number;
+	hints: {
+		showInferredTypes: boolean;
+	}
 }
 
 // The global settings, used when the `workspace/configuration` request is not supported by the client.
 // Please note that this is not the case when using this server with the client provided in this example
 // but could happen with other clients.
-const defaultSettings: ExampleSettings = { maxNumberOfProblems: 1000 };
+const defaultSettings: ExampleSettings = {
+	maxNumberOfProblems: 1000,
+	hints: { showInferredTypes: true },
+};
 let globalSettings: ExampleSettings = defaultSettings;
 
 // Cache the settings of all open documents
@@ -157,9 +188,9 @@ documents.onDidChangeContent(change => {
 });
 
 async function validateTextDocument(
-	textDocument: TextDocument
+	textDocument: NuTextDocument
 ): Promise<void> {
-
+	return await durationLogWrapper(`validateTextDocument ${textDocument.uri}`, async () => {
 	if (!hasDiagnosticRelatedInformationCapability) {
 		console.error(
 			"Trying to validate a document with no diagnostic capability"
@@ -181,13 +212,20 @@ async function validateTextDocument(
 		settings
 	);
 
+	textDocument.nuInlayHints = [];
+
 	const diagnostics: Diagnostic[] = [];
+
+	// FIXME: We use this to deduplicate type hints given by the compiler.
+	//        It'd be nicer if it didn't give duplicate hints in the first place.
+	const seenTypeHintPositions = new Set();
 
 	const lines = stdout.split("\n").filter((l) => l.length > 0);
 	for (const line of lines) {
-		// connection.console.log(line);
+		connection.console.log("line: " + line);
 		try {
 			const obj = JSON.parse(line);
+			console.log("obj type: " + obj.type);
 
 			if (obj.type == "diagnostic") {
 				let severity: DiagnosticSeverity = DiagnosticSeverity.Error;
@@ -223,6 +261,19 @@ async function validateTextDocument(
 				// connection.console.log(diagnostic.message);
 
 				diagnostics.push(diagnostic);
+			} else if (obj.type == "hint" && settings.hints.showInferredTypes) {
+				if (!seenTypeHintPositions.has(obj.position)) {
+					seenTypeHintPositions.add(obj.position);
+					const position = convertSpan(obj.position, lineBreaks);
+					const hint_string = ": " + obj.typename;
+					const hint = InlayHint.create(
+						position,
+						[InlayHintLabelPart.create(hint_string)],
+						InlayHintKind.Type
+					);
+
+					textDocument.nuInlayHints.push(hint);
+				}
 			}
 		} catch (e) {
 			console.error(e);
@@ -231,6 +282,7 @@ async function validateTextDocument(
 
 	// Send the computed diagnostics to VSCode.
 	connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+	});
 
 }
 
@@ -312,7 +364,7 @@ async function runCompiler(
 	let stdout = "";
 	try {
 		const output = await exec(
-			`/Users/jt/Source/nushell/target/debug/nu ${flags} ${tmpFile.name}`,
+			`C:\\CarTar\\debug\\nu.exe ${flags} ${tmpFile.name}`,
 			{
 				timeout: 10000000,
 			}
@@ -496,6 +548,10 @@ connection.onCompletionResolve(
 	}
 );
 
+connection.languages.inlayHint.on((params: InlayHintParams) => {
+    const document = documents.get(params.textDocument.uri) as NuTextDocument;
+    return document.nuInlayHints;
+});
 
 
 function findLineBreaks(utf16_text: string): Array<number> {
