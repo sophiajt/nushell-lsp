@@ -44,7 +44,7 @@ import { fileURLToPath } from "node:url";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const exec = util.promisify(require("node:child_process").exec);
 
-const tmpFile = tmp.fileSync();
+const tmpFile = tmp.fileSync({ prefix: "nushell", keep: false });
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
