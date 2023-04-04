@@ -129,31 +129,35 @@ connection.onInitialized(() => {
 });
 
 // The example settings
-interface ExampleSettings {
+interface NushellLSPSettings {
   maxNumberOfProblems: number;
   hints: {
     showInferredTypes: boolean;
   };
+  nushellExecutablePath: string;
+  maxNushellInvocationTime: number;
 }
 
 // The global settings, used when the `workspace/configuration` request is not supported by the client.
 // Please note that this is not the case when using this server with the client provided in this example
 // but could happen with other clients.
-const defaultSettings: ExampleSettings = {
+const defaultSettings: NushellLSPSettings = {
   maxNumberOfProblems: 1000,
   hints: { showInferredTypes: true },
+  nushellExecutablePath: "nu",
+  maxNushellInvocationTime: 10000000,
 };
-let globalSettings: ExampleSettings = defaultSettings;
+let globalSettings: NushellLSPSettings = defaultSettings;
 
 // Cache the settings of all open documents
-const documentSettings: Map<string, Thenable<ExampleSettings>> = new Map();
+const documentSettings: Map<string, Thenable<NushellLSPSettings>> = new Map();
 
 connection.onDidChangeConfiguration((change) => {
   if (hasConfigurationCapability) {
     // Reset all cached document settings
     documentSettings.clear();
   } else {
-    globalSettings = <ExampleSettings>(
+    globalSettings = <NushellLSPSettings>(
       (change.settings.nushellLanguageServer || defaultSettings)
     );
   }
@@ -162,7 +166,7 @@ connection.onDidChangeConfiguration((change) => {
   documents.all().forEach(validateTextDocument);
 });
 
-function getDocumentSettings(resource: string): Thenable<ExampleSettings> {
+function getDocumentSettings(resource: string): Thenable<NushellLSPSettings> {
   if (!hasConfigurationCapability) {
     return Promise.resolve(globalSettings);
   }
@@ -347,7 +351,7 @@ function convertPosition(position: Position, text: string): number {
 async function runCompiler(
   text: string,
   flags: string,
-  settings: ExampleSettings,
+  settings: NushellLSPSettings,
   options: { allowErrors?: boolean } = {}
 ): Promise<string> {
   const allowErrors =
@@ -362,10 +366,13 @@ async function runCompiler(
 
   let stdout = "";
   try {
+    connection.console.log(
+      "running: " + `${settings.nushellExecutablePath} ${flags} ${tmpFile.name}`
+    );
     const output = await exec(
-      `/Users/jt/Source/nushell/target/debug/nu ${flags} ${tmpFile.name}`,
+      `${settings.nushellExecutablePath} ${flags} ${tmpFile.name}`,
       {
-        timeout: 10000000,
+        timeout: settings.maxNushellInvocationTime,
       }
     );
     stdout = output.stdout;
